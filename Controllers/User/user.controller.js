@@ -243,25 +243,13 @@ getUserTasks = async (req, res) => {
 
     // Check if package exists and is not expired
     const today = new Date();
+    today.setHours(0, 0, 0, 0); // Midnight UTC+local
     console.log("[Step 3] Today's date:", today);
 
-    // Treat today as Wednesday for testing purposes
-    function getThisWeeksWednesday() {
-      const currentDate = new Date();
-      currentDate.setUTCHours(0, 0, 0, 0);
-      const baseMonday = new Date(currentDate);
-      const day = baseMonday.getUTCDay();
-      const diffFromMonday = (day + 6) % 7;
-      baseMonday.setUTCDate(baseMonday.getUTCDate() - diffFromMonday);
-      const wednesday = new Date(baseMonday);
-      wednesday.setUTCDate(baseMonday.getUTCDate() + 2);
-      wednesday.setUTCHours(12, 0, 0, 0);
-      return wednesday;
-    }
-
-    let now = getThisWeeksWednesday();
+    let now = new Date();
+    now.setHours(0, 0, 0, 0); // Use actual today
     now.setMilliseconds(0);
-    console.log("[Step 4] Simulated 'now' as this week's Wednesday at noon:", now);
+    console.log("[Step 4] Using 'now' as today at midnight:", now);
 
     let activePackage = null;
     if (
@@ -289,9 +277,9 @@ getUserTasks = async (req, res) => {
       return date;
     }
 
-    // Use "now" as this fake Wednesday for all assignment logic
+    // Use 'now' (today) for assignment logic
     const weekMondayDate = getMonday(now);
-    const currentDayIdx = now.getDay();
+    const currentDayIdx = now.getDay(); // 0=Sun, ... 6=Sat
     console.log("[Step 6] weekMondayDate:", weekMondayDate, "currentDayIdx (0=Sun):", currentDayIdx);
 
     // If it's Sat or Sun (should not happen, but preserve for consistency)
@@ -332,7 +320,7 @@ getUserTasks = async (req, res) => {
       });
     }
 
-    // Build dates for weekdays for this week up to 'now'
+    // Build dates for weekdays for this week up to 'now' (actual today)
     let assignDays = [];
     for (let d = 1; d <= currentDayIdx; d++) { // Monday=1, ... today
       if (d === 6 || d === 0) continue;
@@ -456,7 +444,6 @@ getUserTasks = async (req, res) => {
         success: true,
         message: adminNotice,
         data: allCurrentWeekTasks,
-        // notice: "For testing: today treated as Wednesday."
       });
     }
 
@@ -464,7 +451,6 @@ getUserTasks = async (req, res) => {
       success: true,
       message: "User tasks for this week (up to today) fetched successfully.",
       data: allCurrentWeekTasks,
-      // notice: "For testing: today treated as Wednesday."
     });
 
   } catch (error) {
