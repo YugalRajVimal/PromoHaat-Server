@@ -11,7 +11,8 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173", // Vite
   "http://localhost:3000", // optional
-  "https://nupal-cdc-software.onrender.com",
+  "https://promohaat-frontend.onrender.com",
+  "https://www.promohaat-frontend.onrender.com",
   process.env.FRONTEND_URL
 ];
 
