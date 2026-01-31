@@ -13,6 +13,8 @@ const allowedOrigins = [
   "http://localhost:3000", // optional
   "https://promohaat-frontend.onrender.com",
   "https://www.promohaat-frontend.onrender.com",
+ "https://promohaat.com",
+ "https://www.promohaat.com",
   process.env.FRONTEND_URL
 ];
 
