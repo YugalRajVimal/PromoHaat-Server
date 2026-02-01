@@ -15,6 +15,8 @@ const allowedOrigins = [
   "https://www.promohaat-frontend.onrender.com",
  "https://promohaat.com",
  "https://www.promohaat.com",
+ "https://accounts.promohaat.com",
+ "https://www.accounts.promohaat.com",
   process.env.FRONTEND_URL
 ];
 
