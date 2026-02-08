@@ -4,6 +4,7 @@ import {
   User
 } from "../../Schema/user.schema.js";
 import ExpiredTokenModel from "../../Schema/expired-token.schema.js";
+import { Admin } from "../../Schema/admin.schema.js";
 
 // Allowed roles from user.schema.js (see enum in file_context_2 line 8)
 // Changed "patient" to "user"
@@ -17,13 +18,14 @@ class AuthController {
       console.log("[checkAuth] User id from req.user:", id);
       console.log("[checkAuth] User role from req.user:", role);
 
-      if (!role || !ALLOWED_ROLES.includes(role)) {
-        console.log("[checkAuth] Invalid user role or role missing:", role);
-        return res.status(401).json({ message: "Unauthorized: Invalid user role" });
+      // Role check: should be strictly 'user' only
+      if (role !== "user") {
+        console.log("[checkAuth] Role is not 'user':", role);
+        return res.status(401).json({ message: "Unauthorized: Only user role allowed" });
       }
 
-      // Check if user with provided id and role exists in the database
-      const dbUser = await User.findOne({ _id: id, role });
+      // Check if user with provided id and user role exists in the database
+      const dbUser = await User.findOne({ _id: id, role: "user" });
       console.log("[checkAuth] Looked up user from DB:", dbUser ? dbUser._id : "NOT FOUND");
 
       if (!dbUser) {
@@ -50,6 +52,21 @@ class AuthController {
         });
       }
 
+
+      // Check KYC status and provide custom error messages based on KYC state, using unique status codes
+      if (dbUser.kyc && dbUser.kyc.kycStatus) {
+        if (dbUser.kyc.kycStatus === "pending") {
+          console.log("[checkAuth] KYC status is pending.");
+          // 429 Too Many Requests (used here for "KYC under review")
+          return res.status(429).json({
+            message: "Your KYC is under review. Please wait for verification.",
+            name: dbUser.name,
+            email: dbUser.email,
+            kycStatus: "pending"
+          });
+        }
+      }
+
       // Check package purchase. If not purchased, fail with 426 Upgrade Required
       if (!dbUser.isAnyPackagePurchased) {
         console.log("[checkAuth] User has not purchased any package.");
@@ -70,18 +87,10 @@ class AuthController {
         });
       }
 
-      // If therapist and incompleteTherapistProfile is true, return error with unique status code
-      if (dbUser.role === "therapist" && dbUser.incompleteTherapistProfile === true) {
-        console.log("[checkAuth] Therapist profile is incomplete.");
-        // 428 Precondition Required: used as unique, fits context of incomplete profile
-        return res.status(428).json({ 
-          message: "Therapist profile is incomplete. Please complete your profile to continue.",
-          name: dbUser.name,
-          email: dbUser.email
-        });
-      }
+      // Removed therapist-specific checks: not relevant for strict "user" role
+
       // If user and incompleteParentProfile is true, return error with unique status code
-      if (dbUser.role === "user" && dbUser.incompleteParentProfile === true) {
+      if (dbUser.incompleteParentProfile === true) {
         console.log("[checkAuth] User profile is incomplete.");
         // 428 Precondition Required, as above
         return res.status(428).json({ 
@@ -89,20 +98,6 @@ class AuthController {
           name: dbUser.name,
           email: dbUser.email
         });
-      }
-      // If therapist and profile complete, but therapist panel is not accessible
-      if (dbUser.role === "therapist" && dbUser.incompleteTherapistProfile === false) {
-        // Need to check TherapistProfile for isPanelAccessible
-        const therapistProfile = await (await import("../../Schema/user.schema.js")).TherapistProfile.findOne({ userId: dbUser._id }).lean();
-        if (therapistProfile && therapistProfile.isPanelAccessible === false) {
-          console.log("[checkAuth] Therapist panel is not accessible for this user.");
-          // 451 Unavailable For Legal Reasons (as unique error, since 403/423 are common)
-          return res.status(451).json({
-            message: "Your therapist panel access is currently not enabled. Please contact support.",
-            name: dbUser.name,
-            email: dbUser.email
-          });
-        }
       }
 
       console.log("[checkAuth] User is authorized.");
@@ -117,7 +112,7 @@ class AuthController {
     }
   };
 
-  // Verify Account with OTP (user/therapist/admin/superadmin) using user.schema.js
+  // Verify Account with OTP (user only)
   verifyAccount = async (req, res) => {
     try {
       let { email, otp, role } = req.body;
@@ -129,15 +124,16 @@ class AuthController {
       email = email.trim().toLowerCase();
       role = role.trim();
 
-      if (!ALLOWED_ROLES.includes(role)) {
-        return res.status(400).json({ message: "Invalid user role." });
+      // Only allow 'user' role
+      if (role !== "user") {
+        return res.status(400).json({ message: "Invalid user role. Only 'user' role is allowed." });
       }
 
-      // Find user by email, role and OTP (atomic find+verify OTP+clear OTP)
+      // Find user by email, role 'user' and OTP (atomic find+verify OTP+clear OTP)
       const user = await User.findOneAndUpdate(
         {
           email,
-          role,
+          role: "user",
           otp
         },
         { $unset: { otp: 1 }, lastLogin: new Date() },
@@ -165,12 +161,61 @@ class AuthController {
 
       console.log("Stored issued token in expired-tokens collection:", token);
 
-
       return res
         .status(200)
         .json({ message: "Account verified successfully", token });
     } catch (error) {
       console.error("VerifyAccount Error:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  // Sign In → Send OTP, only for user role
+  signin = async (req, res) => {
+    try {
+      let { email, role } = req.body;
+
+      if (!email || !role) {
+        return res.status(400).json({ message: "Email and role are required" });
+      }
+
+      email = email.trim().toLowerCase();
+      role = role.trim();
+
+      console.log(email, role);
+
+      // Only allow 'user' role
+      if (role !== "user") {
+        return res.status(400).json({ message: "Invalid user role. Only 'user' role is allowed." });
+      }
+
+      const user = await User.findOne({ email, role: "user" }).lean();
+      if (user && user.role !== "user") {
+        return res.status(400).json({ message: "Role does not match for this user." });
+      }
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Generate 6-digit OTP
+      // const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Save OTP with expiry (10 min)
+      await User.findByIdAndUpdate(
+        user._id,
+        {
+          otp: "000000",
+          otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min expiry
+        },
+        { new: true }
+      );
+
+      // Send OTP via mail
+      // sendMail(email, "Your OTP Code", `Your OTP is: ${otp}`).catch(console.error);
+
+      return res.status(200).json({ message: "OTP sent successfully" });
+    } catch (error) {
+      console.error("Signin Error:", error);
       return res.status(500).json({ message: "Internal Server Error" });
     }
   };
@@ -191,7 +236,7 @@ class AuthController {
       }
 
       const trimmedEmail = email.trim().toLowerCase();
-      
+
       // Normalize phone: remove spaces, remove "+91" if present, keep last 10 digits
       let normalizedPhone = phone.trim().replace(/\s+/g, "");
       if (normalizedPhone.startsWith("+91")) {
@@ -224,8 +269,11 @@ class AuthController {
         return res.status(409).json({ message: "This phone number is already associated with another account." });
       }
 
+      // ===== Handle Referral Logic and Parent/Child Relationships, allowing multiple leftChildren/rightChildren per @user.schema.js =====
+
       let referredBy = null;
       let finalReferredOn = null;
+      let parent = null;
 
       if (referralCode) {
         // Find the user for the given referral code
@@ -245,21 +293,19 @@ class AuthController {
           return res.status(400).json({ message: "referredOn must be one of left, right, or auto." });
         }
 
-        // If referredOn is 'auto', determine which side ('left' or 'right') has fewer users
+        // Choose left or right for placement: 'auto' will select the side with fewer users
         if (referredOn === "auto") {
-          // Count referred users on 'left' and 'right'
-          const leftCount = await User.countDocuments({ referredBy: referralCode, referredOn: "left" });
-          const rightCount = await User.countDocuments({ referredBy: referralCode, referredOn: "right" });
-
-          if (leftCount <= rightCount) {
-            finalReferredOn = "left";
-          } else {
-            finalReferredOn = "right";
-          }
+          // Count the number of left and right children (array length)
+          const leftCount = referringUser.leftChildren ? referringUser.leftChildren.length : 0;
+          const rightCount = referringUser.rightChildren ? referringUser.rightChildren.length : 0;
+          finalReferredOn = (leftCount <= rightCount) ? "left" : "right";
         } else {
           finalReferredOn = referredOn;
         }
-        referredBy = referralCode;
+
+        referredBy = referralCode.trim();
+        parent = referringUser._id;
+        // No need to check if side is "full" as both arrays can have multiple children
       }
 
       // Default OTP for demo; replace with random generation in production
@@ -291,11 +337,20 @@ class AuthController {
       if (referredBy) {
         newUserData.referredBy = referredBy;
         newUserData.referredOn = finalReferredOn;
+        newUserData.parent = parent;
       }
 
       const newUser = new User(newUserData);
-
       await newUser.save();
+
+      // If referred, push the user into parent's leftChildren or rightChildren array
+      if (parent) {
+        if (finalReferredOn === "left") {
+          await User.findByIdAndUpdate(parent, { $addToSet: { leftChildren: newUser._id } });
+        } else if (finalReferredOn === "right") {
+          await User.findByIdAndUpdate(parent, { $addToSet: { rightChildren: newUser._id } });
+        }
+      }
 
       // In production: send OTP via SMS or email
 
@@ -305,55 +360,6 @@ class AuthController {
       });
     } catch (error) {
       console.error("Signup Error:", error);
-      return res.status(500).json({ message: "Internal Server Error" });
-    }
-  };
-
-  // Sign In → Send OTP, only for known roles
-  signin = async (req, res) => {
-    try {
-      let { email, role } = req.body;
-
-      if (!email || !role) {
-        return res.status(400).json({ message: "Email and role are required" });
-      }
-
-      email = email.trim().toLowerCase();
-      role = role.trim();
-
-      console.log(email,role);
-
-      if (!ALLOWED_ROLES.includes(role)) {
-        return res.status(400).json({ message: "Invalid user role." });
-      }
-
-      const user = await User.findOne({ email, role }).lean();
-      if (user && user.role !== role) {
-        return res.status(400).json({ message: "Role does not match for this user." });
-      }
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Generate 6-digit OTP
-      // const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Save OTP with expiry (10 min)
-      await User.findByIdAndUpdate(
-        user._id,
-        {
-          otp: "000000",
-          otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min expiry
-        },
-        { new: true }
-      );
-
-      // Send OTP via mail
-      // sendMail(email, "Your OTP Code", `Your OTP is: ${otp}`).catch(console.error);
-
-      return res.status(200).json({ message: "OTP sent successfully" });
-    } catch (error) {
-      console.error("Signin Error:", error);
       return res.status(500).json({ message: "Internal Server Error" });
     }
   };
@@ -378,6 +384,134 @@ class AuthController {
       return res.status(200).json({ message: "Signed out successfully" });
     } catch (error) {
       console.error("SignOut Error:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  // ===================== ADMIN ONLY: checkAuth, signin, verifyAccount =====================
+
+
+
+  // Admin: Check Auth (admin dashboard)
+  adminCheckAuth = async (req, res) => {
+    try {
+      const { id, role } = req.user || {};
+      if (!id || role !== "admin") {
+        return res.status(401).json({ message: "Unauthorized: Admin only" });
+      }
+
+      const admin = await Admin.findOne({ _id: id, role: "admin" });
+      if (!admin) {
+        return res.status(401).json({ message: "Admin not found" });
+      }
+
+      // No status or suspend support in Admin schema, so skip
+      return res.status(200).json({
+        message: "Admin authorized",
+        name: admin.name,
+        email: admin.email
+      });
+    } catch (error) {
+      console.error("[adminCheckAuth] Error encountered:", error);
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+  };
+
+  // Admin: Sign In → Send OTP
+  adminSignin = async (req, res) => {
+    try {
+      let { email, role } = req.body;
+
+      if (!email || !role) {
+        return res.status(400).json({ message: "Email and role are required" });
+      }
+
+      email = email.trim().toLowerCase();
+      role = role.trim();
+
+      if (role !== "admin") {
+        return res.status(400).json({ message: "Role must be admin for this endpoint" });
+      }
+
+      const admin = await Admin.findOne({ email, role: "admin" }).lean();
+      if (!admin) {
+        return res.status(404).json({ message: "Admin not found" });
+      }
+
+      // Generate 6-digit OTP (or 000000 in dev)
+      // const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      // For now, set constant OTP
+      const otp = "000000";
+
+      // Save OTP with expiry (10 min)
+      await Admin.findByIdAndUpdate(
+        admin._id,
+        {
+          otp,
+          otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+          otpGeneratedAt: new Date(),
+          otpAttempts: 0
+        },
+        { new: true }
+      );
+
+      // Optionally: Send OTP via email
+
+      return res.status(200).json({ message: "OTP sent successfully" });
+    } catch (error) {
+      console.error("AdminSignin Error:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  // Admin: Verify OTP & Generate Token
+  adminVerifyAccount = async (req, res) => {
+    try {
+      let { email, otp, role } = req.body;
+
+      if (!email || !otp || !role) {
+        return res.status(400).json({ message: "Email, OTP, and Role are required" });
+      }
+
+      email = email.trim().toLowerCase();
+      role = role.trim();
+
+      if (role !== "admin") {
+        return res.status(400).json({ message: "Invalid user role." });
+      }
+
+      // Find admin by email, role and OTP
+      const admin = await Admin.findOneAndUpdate(
+        {
+          email,
+          role: "admin",
+          otp
+        },
+        { $unset: { otp: 1 }, lastLogin: new Date(), otpExpiresAt: 1, otpAttempts: 1, otpGeneratedAt: 1 },
+        { new: true }
+      ).lean();
+
+      if (!admin) {
+        return res.status(401).json({ message: "Invalid credentials or OTP" });
+      }
+
+      // Generate token
+      const tokenPayload = {
+        id: admin._id,
+        email: admin.email,
+        role: "admin"
+      };
+
+      const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: "1d" });
+
+      // NOTE: Do NOT log tokens for admin into ExpiredTokenModel at creation time (that would immediately revoke),
+      // only mark them expired on signout. So this is omitted here.
+
+      return res
+        .status(200)
+        .json({ message: "Account verified successfully", token });
+    } catch (error) {
+      console.error("AdminVerifyAccount Error:", error);
       return res.status(500).json({ message: "Internal Server Error" });
     }
   };

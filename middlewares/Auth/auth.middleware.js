@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import ExpiredTokenModel from "../../Schema/expired-token.schema.js";
 import { User } from "../../Schema/user.schema.js";
+import { Admin } from "../../Schema/admin.schema.js";
 
 const jwtAuth = async (req, res, next) => {
   // Read the token from the Authorization header
@@ -69,8 +70,8 @@ const jwtAuth = async (req, res, next) => {
     };
     console.log("[jwtAuth] User info from decoded token:", req.user);
 
-    // Acceptable roles as defined in user.schema.js
-    const validRoles = ["user", "admin", "superadmin"];
+    // Acceptable roles as defined in user.schema.js and admin.schema.js
+    const validRoles = ["user", "admin"];
     if (!validRoles.includes(payload.role)) {
       console.log(
         `[jwtAuth] Invalid user role found in payload: ${payload.role}.`
@@ -80,32 +81,40 @@ const jwtAuth = async (req, res, next) => {
         .json({ error: "Unauthorized: Invalid user role." });
     }
 
-    const dbUser = await User.findOne({
-      _id: payload.id,
-      role: payload.role,
-    });
+    let dbEntity = null;
+    if (payload.role === "admin") {
+      dbEntity = await Admin.findOne({
+        _id: payload.id,
+        role: "admin",
+      });
+    } else {
+      dbEntity = await User.findOne({
+        _id: payload.id,
+        role: "user",
+      });
+    }
 
-    if (!dbUser) {
+    if (!dbEntity) {
       console.log(
-        "[jwtAuth] No user found in db with id and role:",
-        payload.id,
-        payload.role
+        `[jwtAuth] No ${payload.role} found in db with id:`,
+        payload.id
       );
       return res
         .status(401)
-        .json({ error: "Unauthorized: User not found in database." });
+        .json({ error: `Unauthorized: ${payload.role.charAt(0).toUpperCase() + payload.role.slice(1)} not found in database.` });
     } else {
-      console.log("[jwtAuth] User found in db:", dbUser._id);
+      console.log(`[jwtAuth] ${payload.role.charAt(0).toUpperCase() + payload.role.slice(1)} found in db:`, dbEntity._id);
     }
 
-    if (["suspended", "deleted"].includes(dbUser.status)) {
+    // Only check account status for users
+    if (payload.role === "user" && ["suspended", "deleted"].includes(dbEntity.status)) {
       console.log(
-        `[jwtAuth] User account status is ${dbUser.status}, denying access.`
+        `[jwtAuth] User account status is ${dbEntity.status}, denying access.`
       );
       return res
         .status(403)
         .json({
-          error: `User account is ${dbUser.status}. Please contact support.`,
+          error: `User account is ${dbEntity.status}. Please contact support.`,
         });
     }
 
@@ -114,7 +123,7 @@ const jwtAuth = async (req, res, next) => {
     next();
   } catch (error) {
     // If the token is not valid, return an error
-    console.error("[jwtAuth] Error in jwt.verify or DB user check:", error);
+    console.error("[jwtAuth] Error in jwt.verify or DB entity check:", error);
     return res.status(401).json({ error: "Unauthorized Access" });
   }
 };

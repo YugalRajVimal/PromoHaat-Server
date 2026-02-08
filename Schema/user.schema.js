@@ -62,8 +62,8 @@ const UserSchema = new mongoose.Schema(
       kycVerifiedAt: { type: Date }, // when admin verified
       kycStatus: {
         type: String,
-        enum: ["pending", "approved", "rejected", "none"],
-        default: "none", // "none": never submitted, "pending": needs review, etc.
+        enum: ["pending", "approved", "rejected"],
+        default: "pending", // "none": never submitted, "pending": needs review, etc.
       },
       kycRejectionReason: { type: String, default: "" }, // if rejected, why
     },
@@ -106,7 +106,27 @@ const UserSchema = new mongoose.Schema(
       default: null
     },
 
-
+    parent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+    
+    leftChildren: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null
+      }
+    ],
+    
+    rightChildren: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null
+      }
+    ],
     // Task History: Array to keep a log of completed tasks (with relevant info)
     taskHistory: [
       {

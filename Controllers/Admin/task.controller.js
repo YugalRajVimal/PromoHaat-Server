@@ -3,6 +3,8 @@ import { Tasks } from "../../Schema/task.schema.js";
 
 class TasksAdminController {
 
+ 
+
     addTasks = async (req, res) => {
         try {
             // Validate input
@@ -144,6 +146,126 @@ class TasksAdminController {
             return res.status(500).json({
                 success: false,
                 message: "Failed to add multiple tasks.",
+                error: error.message
+            });
+        }
+    }
+
+       // Fetch all tasks with pagination
+    async fetchAllTask(req, res) {
+        try {
+            // Default page = 1, limit = 10
+            let { page = 1, limit = 10 } = req.query;
+            page = parseInt(page, 10);
+            limit = parseInt(limit, 10);
+
+            if (isNaN(page) || page < 1) page = 1;
+            if (isNaN(limit) || limit < 1) limit = 10;
+            
+            const skip = (page - 1) * limit;
+
+            // Get total count
+            const total = await Tasks.countDocuments();
+            // Get paginated tasks, sorted by createdAt descending
+            const tasks = await Tasks.find()
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+
+            return res.status(200).json({
+                success: true,
+                data: tasks,
+                pagination: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit)
+                }
+            });
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to fetch tasks.",
+                error: error.message
+            });
+        }
+    }
+
+    // Delete a single task by id
+    async deleteTask(req, res) {
+        try {
+            const { id } = req.params;
+            if (!id) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Task ID is required."
+                });
+            }
+
+            const deletedTask = await Tasks.findByIdAndDelete(id);
+            if (!deletedTask) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Task not found."
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Task deleted successfully.",
+                data: deletedTask
+            });
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to delete task.",
+                error: error.message
+            });
+        }
+    }
+
+    // Bulk delete selected tasks by array of ids
+    async deleteSelectedTask(req, res) {
+        try {
+            const { ids } = req.body;
+            if (!Array.isArray(ids) || ids.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "A non-empty array of ids is required."
+                });
+            }
+
+            // Use $in to match all ids in the list
+            const deleteResult = await Tasks.deleteMany({ _id: { $in: ids } });
+
+            return res.status(200).json({
+                success: true,
+                message: `${deleteResult.deletedCount} task(s) deleted successfully.`,
+                deletedCount: deleteResult.deletedCount
+            });
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to delete selected tasks.",
+                error: error.message
+            });
+        }
+    }
+
+    // Delete all tasks from the collection
+    async deleteAllTask(req, res) {
+        try {
+            const deleteResult = await Tasks.deleteMany({});
+
+            return res.status(200).json({
+                success: true,
+                message: `${deleteResult.deletedCount} task(s) deleted successfully.`,
+                deletedCount: deleteResult.deletedCount
+            });
+        } catch (error) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to delete all tasks.",
                 error: error.message
             });
         }

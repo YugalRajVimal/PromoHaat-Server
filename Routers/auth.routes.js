@@ -17,6 +17,12 @@ authRouter.post("/signin", authController.signin);
 authRouter.post("/verify-account", authController.verifyAccount);
 authRouter.post("/signout", jwtAuth, authController.signOut);
 
+// ===== ADMIN AUTH ROUTES =====
+authRouter.post("/admin/check-auth", jwtAuth, authController.adminCheckAuth);
+authRouter.post("/admin/signin", authController.adminSignin);
+authRouter.post("/admin/verify-account", authController.adminVerifyAccount);
+
+
 
 
 // authRouter.post("/super-admin/check-auth",jwtAuth, superAdminAuthController.checkAuth);

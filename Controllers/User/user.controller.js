@@ -1,6 +1,7 @@
 
 import { deleteUploadedFiles } from "../../middlewares/fileDelete.middleware.js";
 import userRouter from "../../Routers/user.routes.js";
+import { Admin } from "../../Schema/admin.schema.js";
 import Package from "../../Schema/packages.schema.js";
 import { Tasks } from "../../Schema/task.schema.js";
 import { User } from "../../Schema/user.schema.js";
@@ -9,7 +10,9 @@ class UserController {
 
   async completeKYC(req, res) {
     try {
-      const autoApprove = true;
+      // Fetch KYC auto-approve value from Admin collection
+      const admin = await Admin.findOne(); // Adjust: If multiple admins, select an appropriate one
+      const autoApprove = admin?.kycAutoApprove ?? false;
       // Auth: req.user must exist (protected route on backend)
       if (!req.user || !req.user.id) {
         deleteUploadedFiles(req.files);
@@ -77,9 +80,7 @@ class UserController {
         return res.status(404).json({ success: false, message: "User not found." });
       }
 
-      if (autoApprove) {
-        user.isKYCCompleted = true;
-      }
+      user.isKYCCompleted = true;
 
       // Update user's KYC fields (do NOT mark isKYCCompleted=true yet!)
       user.kyc = {

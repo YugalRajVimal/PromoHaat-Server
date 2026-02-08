@@ -17,5 +17,33 @@ tasksAdminRouter.post("/", (req, res) => tasksAdminController.addTasks(req, res)
  */
 tasksAdminRouter.post("/multiple", (req, res) => tasksAdminController.addMultipleTasks(req, res));
 
+/**
+ * @route GET /admin/tasks
+ * @desc Fetch all tasks with pagination
+ *       Query params: page, limit (optional)
+ */
+tasksAdminRouter.get("/", (req, res) => tasksAdminController.fetchAllTask(req, res));
+
+/**
+ * @route DELETE /admin/tasks/:id
+ * @desc Delete a single task by id
+ */
+tasksAdminRouter.delete("/:id", (req, res) => tasksAdminController.deleteTask(req, res));
+
+/**
+ * @route DELETE /admin/tasks/delete/selected
+ * @desc Bulk delete selected tasks by array of ids
+ *       Body: { ids: [...] }
+ */
+tasksAdminRouter.delete("/delete/selected", (req, res) => tasksAdminController.deleteSelectedTask(req, res));
+
+/**
+ * @route DELETE /admin/tasks/delete/all
+ * @desc Delete all tasks from the collection
+ */
+tasksAdminRouter.delete("/delete/all", (req, res) => tasksAdminController.deleteAllTask(req, res));
+
+
+
 export default tasksAdminRouter;
 

@@ -1,5 +1,7 @@
 import express from "express";
 import tasksAdminRouter from "./Admin/tasks.routes.js";
+import userAdminRouter from "./Admin/user.routes.js";
+import packagesAdminRouter from "./Admin/packages.routes.js";
 
 
 // import jwtAuth from "../middlewares/Auth/auth.middleware.js";
@@ -28,9 +30,12 @@ const adminRouter = express.Router();
 adminRouter.get("/", (req, res) => {
   res.send("Welcome to Promo Hatt Admin APIs");
 });
-
-
 adminRouter.use("/tasks", tasksAdminRouter);
+adminRouter.use("/users", userAdminRouter);
+adminRouter.use("/packages", packagesAdminRouter);
+
+
+
 
 
 
